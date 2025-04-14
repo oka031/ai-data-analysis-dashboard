@@ -1,0 +1,179 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
+import re
+from collections import Counter
+from wordcloud import WordCloud
+import nltk
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.decomposition import LatentDirichletAllocation
+
+# NLTK必要データのダウンロード
+nltk.download('punkt')
+nltk.download('stopwords')
+
+# データの読み込み
+all_data_file = 'remote_work_all_data_20250329_165210.csv'
+en_data_file = 'remote_work_data_en_20250329_165210.csv'
+jp_data_file = 'remote_work_data_jp_20250329_165210.csv'
+
+# 英語データの読み込み（今回は英語データに焦点を当てる）
+df_en = pd.read_csv(en_data_file)
+print(f"英語データ: {df_en.shape[0]}行, {df_en.shape[1]}列")
+
+# 欠損値の処理
+print(f"コンテンツ欠損数: {df_en['content'].isnull().sum()}")
+df_en = df_en.dropna(subset=['content'])
+print(f"欠損値除去後: {df_en.shape[0]}行")
+
+# テキストクリーニング関数
+def clean_text(text):
+    if isinstance(text, str):
+        # HTML タグの除去
+        text = re.sub(r'<.*?>', '', text)
+        # 特殊文字の除去
+        text = re.sub(r'[^\w\s]', '', text)
+        # 複数の空白を1つに置換
+        text = re.sub(r'\s+', ' ', text)
+        # 小文字化
+        text = text.lower()
+        return text
+    return ''
+
+# テキストをクリーニング
+df_en['cleaned_content'] = df_en['content'].apply(clean_text)
+
+# キーワード検索関数
+def count_keyword_occurrences(text, keywords):
+    if not isinstance(text, str):
+        return {k: 0 for k in keywords}
+    
+    counts = {}
+    text_lower = text.lower()
+    for keyword in keywords:
+        counts[keyword] = text_lower.count(keyword)
+    return counts
+
+# リモートワーク関連キーワード
+remote_keywords = [
+    'remote work', 'telework', 'work from home', 'virtual team', 
+    'distributed team', 'online collaboration', 'video conference',
+    'digital nomad', 'virtual office', 'telecommuting'
+]
+
+# 生産性関連キーワード
+productivity_keywords = [
+    'productivity', 'efficiency', 'performance', 'output', 'results',
+    'time management', 'work-life balance', 'focus', 'distraction',
+    'communication', 'collaboration', 'meeting', 'schedule'
+]
+
+# 最適化関連キーワード
+optimization_keywords = [
+    'optimize', 'improvement', 'strategy', 'best practice', 'effective',
+    'solution', 'challenge', 'benefit', 'disadvantage', 'balance',
+    'hybrid', 'flexible', 'schedule', 'environment'
+]
+
+# キーワード出現回数を計算
+print("\nキーワード分析を実行中...")
+remote_counts = df_en['cleaned_content'].apply(lambda x: count_keyword_occurrences(x, remote_keywords))
+productivity_counts = df_en['cleaned_content'].apply(lambda x: count_keyword_occurrences(x, productivity_keywords))
+optimization_counts = df_en['cleaned_content'].apply(lambda x: count_keyword_occurrences(x, optimization_keywords))
+
+# データフレームに変換
+remote_df = pd.DataFrame(remote_counts.tolist())
+productivity_df = pd.DataFrame(productivity_counts.tolist())
+optimization_df = pd.DataFrame(optimization_counts.tolist())
+
+# キーワードの総出現回数
+print("\nリモートワーク関連キーワードの出現回数:")
+print(remote_df.sum().sort_values(ascending=False))
+
+print("\n生産性関連キーワードの出現回数:")
+print(productivity_df.sum().sort_values(ascending=False))
+
+print("\n最適化関連キーワードの出現回数:")
+print(optimization_df.sum().sort_values(ascending=False))
+
+# 頻出単語の抽出（ストップワードを除外）
+def get_top_words(texts, n=30):
+    stop_words = set(stopwords.words('english'))
+    words = []
+    
+    for text in texts:
+        if isinstance(text, str):
+            tokens = word_tokenize(text)
+            # ストップワードと短い単語を除外
+            filtered_tokens = [word for word in tokens if word.lower() not in stop_words and len(word) > 3]
+            words.extend(filtered_tokens)
+    
+    # 頻出単語カウント
+    word_counts = Counter(words)
+    return word_counts.most_common(n)
+
+# 頻出単語を抽出
+top_words = get_top_words(df_en['cleaned_content'], n=30)
+print("\n頻出単語（上位30）:")
+for word, count in top_words:
+    print(f"{word}: {count}")
+
+# ワードクラウドの作成
+all_text = ' '.join(df_en['cleaned_content'].dropna())
+wordcloud = WordCloud(width=800, height=400, background_color='white', max_words=100).generate(all_text)
+
+plt.figure(figsize=(10, 6))
+plt.imshow(wordcloud, interpolation='bilinear')
+plt.axis('off')
+plt.title('リモートワーク関連テキストのワードクラウド')
+plt.savefig('remote_work_wordcloud.png')
+plt.close()
+
+# トピックモデリング (LDA)
+print("\nトピックモデリングを実行中...")
+# TF-IDF特徴量抽出
+tfidf_vectorizer = TfidfVectorizer(max_df=0.95, min_df=2, stop_words='english')
+tfidf = tfidf_vectorizer.fit_transform(df_en['cleaned_content'].dropna())
+feature_names = tfidf_vectorizer.get_feature_names_out()
+
+# LDAモデル
+n_topics = 3
+lda = LatentDirichletAllocation(n_components=n_topics, random_state=42)
+lda.fit(tfidf)
+
+# トピックごとの重要な単語を表示
+print("\nトピックモデリング結果:")
+for topic_idx, topic in enumerate(lda.components_):
+    top_features_idx = topic.argsort()[:-11:-1]  # 上位10単語
+    top_features = [feature_names[i] for i in top_features_idx]
+    print(f"トピック #{topic_idx + 1}: {', '.join(top_features)}")
+
+# 各文書のトピック分布
+doc_topics = lda.transform(tfidf)
+df_en_with_topics = df_en.copy()
+for i in range(n_topics):
+    df_en_with_topics[f'topic_{i+1}'] = doc_topics[:, i]
+
+# 主要トピックを特定
+df_en_with_topics['main_topic'] = df_en_with_topics[['topic_1', 'topic_2', 'topic_3']].idxmax(axis=1)
+print("\n文書ごとの主要トピック:")
+print(df_en_with_topics['main_topic'].value_counts())
+
+# 各トピックの平均確率
+topic_means = df_en_with_topics[['topic_1', 'topic_2', 'topic_3']].mean()
+print("\nトピック平均確率:")
+print(topic_means)
+
+# トピック分布の可視化
+plt.figure(figsize=(10, 6))
+sns.boxplot(data=df_en_with_topics[['topic_1', 'topic_2', 'topic_3']])
+plt.title('文書ごとのトピック分布')
+plt.ylabel('トピック確率')
+plt.xlabel('トピック')
+plt.savefig('topic_distribution.png')
+plt.close()
+
+print("\nテキスト分析完了！")

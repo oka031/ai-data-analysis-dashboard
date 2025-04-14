@@ -1,0 +1,247 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
+import re
+import json
+from collections import Counter
+import nltk
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize, sent_tokenize
+from sklearn.feature_extraction.text import TfidfVectorizer
+import japanize_matplotlib
+
+# データの読み込み
+all_data_file = 'remote_work_all_data_20250329_165210.csv'
+en_data_file = 'remote_work_data_en_20250329_165210.csv'
+jp_data_file = 'remote_work_data_jp_20250329_165210.csv'
+
+df_all = pd.read_csv(all_data_file)
+print(f"全データ: {df_all.shape[0]}行, {df_all.shape[1]}列")
+
+# テキストクリーニング関数
+def clean_text(text):
+    if isinstance(text, str):
+        # HTML タグの除去
+        text = re.sub(r'<.*?>', '', text)
+        # 特殊文字の除去
+        text = re.sub(r'[^\w\s\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]', '', text)
+        # 複数の空白を1つに置換
+        text = re.sub(r'\s+', ' ', text)
+        return text
+    return ''
+
+# テキストをクリーニング
+df_all['cleaned_content'] = df_all['content'].apply(clean_text)
+
+# 欠損値の処理
+df_all = df_all.dropna(subset=['cleaned_content'])
+print(f"クリーニング後のデータ: {df_all.shape[0]}行")
+
+# リモートワーク最適化のためのキーワードとフレーズを定義
+optimization_indicators = {
+    'challenges': [
+        'challenge', 'problem', 'difficulty', 'obstacle', 'barrier', 'issue',
+        '課題', '問題', '困難', '障害', '壁', 'デメリット'
+    ],
+    'solutions': [
+        'solution', 'strategy', 'approach', 'method', 'technique', 'best practice',
+        '解決策', '戦略', 'アプローチ', '方法', '技術', 'ベストプラクティス'
+    ],
+    'benefits': [
+        'benefit', 'advantage', 'gain', 'improvement', 'enhancement', 'opportunity',
+        'メリット', '利点', '向上', '改善', '強化', '機会'
+    ],
+    'tools': [
+        'tool', 'software', 'application', 'platform', 'system', 'technology',
+        'ツール', 'ソフトウェア', 'アプリケーション', 'プラットフォーム', 'システム', 'テクノロジー'
+    ],
+    'communication': [
+        'communication', 'collaboration', 'team', 'meeting', 'interaction', 'engagement',
+        'コミュニケーション', 'コラボレーション', 'チーム', '会議', '対話', 'エンゲージメント'
+    ],
+    'productivity': [
+        'productivity', 'efficiency', 'performance', 'output', 'result', 'outcome',
+        '生産性', '効率', 'パフォーマンス', '産出', '結果', '成果'
+    ],
+    'work_life_balance': [
+        'work-life balance', 'well-being', 'stress', 'burnout', 'health', 'satisfaction',
+        'ワークライフバランス', '健康', 'ストレス', '燃え尽き', '満足'
+    ],
+    'management': [
+        'management', 'leadership', 'supervision', 'evaluation', 'monitoring', 'reporting',
+        'マネジメント', 'リーダーシップ', '監督', '評価', 'モニタリング', 'レポート'
+    ]
+}
+
+# 各カテゴリのキーワード出現頻度を計測
+def count_category_keywords(text, categories):
+    if not isinstance(text, str):
+        return {cat: 0 for cat in categories}
+    
+    counts = {}
+    text_lower = text.lower()
+    
+    for category, keywords in categories.items():
+        count = 0
+        for keyword in keywords:
+            count += text_lower.count(keyword)
+        counts[category] = count
+    
+    return counts
+
+# 各カテゴリの出現頻度を計算
+category_counts = df_all['cleaned_content'].apply(lambda x: count_category_keywords(x, optimization_indicators))
+category_df = pd.DataFrame(category_counts.tolist())
+
+# カテゴリごとの総出現回数
+print("\nカテゴリごとの言及頻度:")
+category_totals = category_df.sum().sort_values(ascending=False)
+print(category_totals)
+
+# カテゴリの可視化
+plt.figure(figsize=(12, 8))
+category_totals.plot(kind='bar', color='skyblue')
+plt.title('リモートワーク関連記事における各カテゴリの言及頻度')
+plt.xlabel('カテゴリ')
+plt.ylabel('言及回数')
+plt.tight_layout()
+plt.savefig('category_mentions.png')
+plt.close()
+
+# 言語別のカテゴリ分析
+df_all_with_categories = pd.concat([df_all, category_df], axis=1)
+language_category_means = df_all_with_categories.groupby('language')[optimization_indicators.keys()].mean()
+print("\n言語別のカテゴリ平均言及回数:")
+print(language_category_means)
+
+# 言語別の傾向を可視化
+plt.figure(figsize=(14, 8))
+language_category_means.plot(kind='bar')
+plt.title('言語別のカテゴリ言及傾向')
+plt.xlabel('言語')
+plt.ylabel('平均言及回数')
+plt.legend(title='カテゴリ')
+plt.tight_layout()
+plt.savefig('language_category_trends.png')
+plt.close()
+
+# 文単位での洞察抽出
+def extract_insights(text, keywords, max_insights=3):
+    if not isinstance(text, str):
+        return []
+    
+    # 文に分割
+    sentences = sent_tokenize(text)
+    insights = []
+    
+    for sentence in sentences:
+        # キーワードが含まれているか確認
+        if any(keyword in sentence.lower() for keyword in keywords):
+            # 短すぎる文は除外
+            if len(sentence.split()) > 5:
+                insights.append(sentence)
+    
+    # 重複を排除して最大数まで返す
+    unique_insights = list(set(insights))
+    return unique_insights[:max_insights]
+
+# 最適化に関する洞察を抽出
+challenges_keywords = optimization_indicators['challenges']
+solutions_keywords = optimization_indicators['solutions']
+benefits_keywords = optimization_indicators['benefits']
+
+# 記事ごとの洞察を抽出
+all_insights = {
+    'challenges': [],
+    'solutions': [],
+    'benefits': []
+}
+
+for text in df_all['cleaned_content']:
+    all_insights['challenges'].extend(extract_insights(text, challenges_keywords))
+    all_insights['solutions'].extend(extract_insights(text, solutions_keywords))
+    all_insights['benefits'].extend(extract_insights(text, benefits_keywords))
+
+# 洞察の数を確認
+print("\n抽出された洞察の数:")
+for category, insights in all_insights.items():
+    print(f"{category}: {len(insights)}個")
+
+# フルリモート最適化のための推奨事項を生成
+def generate_recommendations():
+    recommendations = {
+        'communication': [
+            '定期的なビデオ会議を活用して、チームの結束力を維持する',
+            '非同期コミュニケーションツールを使用して、時間帯の異なるメンバーとの連携を強化する',
+            'チャットツールでは明確で具体的なメッセージを心がけ、誤解を防ぐ',
+            'インフォーマルな会話の機会を意図的に作り、チームの関係構築を促進する',
+            'コミュニケーションのルールと期待値を明確に設定する'
+        ],
+        'productivity': [
+            '集中作業の時間帯を確保し、その間は通知をオフにする',
+            'タスク管理ツールを活用して、優先順位と進捗状況を明確にする',
+            '適切な休憩を取り入れたポモドーロ・テクニックなどの時間管理手法を導入する',
+            '作業環境を整え、集中を妨げる要素を最小限に抑える',
+            '日々の成果を可視化し、進捗を実感できるようにする'
+        ],
+        'work_life_balance': [
+            '明確な勤務時間を設定し、業務終了後はデジタルデバイスから離れる習慣をつける',
+            '自宅での作業スペースを確保し、仕事とプライベートの物理的な境界を作る',
+            '定期的な運動やストレッチを取り入れ、身体的な健康を維持する',
+            '家族や同居人と勤務時間や期待について話し合い、理解を得る',
+            '通勤に使っていた時間を自己啓発や趣味に充てる',
+            '定期的に休暇を取り、完全にオフラインで過ごす時間を確保する'
+        ],
+        'management': [
+            '成果物とプロセスの両方を評価する明確な指標を設定する',
+            'チーム内での定期的な1on1ミーティングを実施し、個別の課題やニーズに対応する',
+            '透明性の高い目標設定と進捗共有の仕組みを導入する',
+            'チームメンバーの自律性と責任感を育む信頼ベースのマネジメントを実践する',
+            'オンラインでのチーム文化構築のための取り組みを意識的に行う'
+        ],
+        'tools': [
+            'ビデオ会議、チャット、プロジェクト管理など、目的に応じた適切なツールを選択する',
+            'ツールの使用ルールと期待値を明確にドキュメント化する',
+            '不必要な通知や割り込みを最小限に抑えるツールの設定を最適化する',
+            'クラウドベースの共同編集ツールを活用して、リアルタイムのコラボレーションを促進する',
+            'ツールの過剰導入を避け、シンプルで一貫性のあるワークフローを維持する'
+        ]
+    }
+    
+    return recommendations
+
+# 推奨事項を生成
+recommendations = generate_recommendations()
+
+# 結果をJSON形式で保存
+insights_data = {
+    'category_mentions': category_totals.to_dict(),
+    'language_trends': language_category_means.to_dict(),
+    'recommendations': recommendations
+}
+
+with open('remote_work_insights.json', 'w', encoding='utf-8') as f:
+    json.dump(insights_data, f, ensure_ascii=False, indent=4)
+
+print("\nリモートワーク最適化の洞察を JSON ファイルに保存しました: remote_work_insights.json")
+
+# 洞察のサマリーを表示
+print("\nリモートワーク最適化のための主要な洞察:")
+print("\n=== コミュニケーション ===")
+for rec in recommendations['communication'][:3]:
+    print(f"- {rec}")
+
+print("\n=== 生産性 ===")
+for rec in recommendations['productivity'][:3]:
+    print(f"- {rec}")
+
+print("\n=== ワークライフバランス ===")
+for rec in recommendations['work_life_balance'][:3]:
+    print(f"- {rec}")
+
+print("\n=== マネジメント ===")
+for rec in recommendations['management'][:3]:
+    print(f"- {rec}")
+
+print("\nリモートワーク最適化の洞察生成完了！")
