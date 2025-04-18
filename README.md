@@ -37,7 +37,7 @@
 /
 ├── README.md           # プロジェクト概要
 ├── process.md          # 分析プロセスの詳細
-├── insight.md          # 分析から得られた洞察
+├── insights.md          # 分析から得られた洞察
 ├── src/                # ソースコード
 │   └── components/     # Reactコンポーネント
 ├── scripts/            # 分析スクリプト
