@@ -1,0 +1,15 @@
+{
+  "files": {
+    "main.css": "/ai-data-analysis-dashboard/static/css/main.74330ca0.css",
+    "main.js": "/ai-data-analysis-dashboard/static/js/main.5ef6365e.js",
+    "static/js/453.e5ee6ae1.chunk.js": "/ai-data-analysis-dashboard/static/js/453.e5ee6ae1.chunk.js",
+    "index.html": "/ai-data-analysis-dashboard/index.html",
+    "main.74330ca0.css.map": "/ai-data-analysis-dashboard/static/css/main.74330ca0.css.map",
+    "main.5ef6365e.js.map": "/ai-data-analysis-dashboard/static/js/main.5ef6365e.js.map",
+    "453.e5ee6ae1.chunk.js.map": "/ai-data-analysis-dashboard/static/js/453.e5ee6ae1.chunk.js.map"
+  },
+  "entrypoints": [
+    "static/css/main.74330ca0.css",
+    "static/js/main.5ef6365e.js"
+  ]
+}
